@@ -1,0 +1,10 @@
+DATABASE 
+
+TABLE 1 - Professor 
+NAME ID 
+
+TABLE 2 - SUBJECT 
+SubjectName ID 
+
+Table 3 - Professor Rankings 
+ProfessorID SubjectID OverallRanking Coerente ExplicaBem Facilidade 
