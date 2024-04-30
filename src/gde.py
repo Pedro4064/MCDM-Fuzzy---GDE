@@ -1,26 +1,43 @@
 import mysql.connector
+from mysql.connector import pooling
 from bs4 import BeautifulSoup
+import threading
 import requests
 import json 
 
-mydb = mysql.connector.connect(
-  host="localhost",
-  user="root",
-  password="db",
-  database="GDE"
+connection_pool = pooling.MySQLConnectionPool(
+    pool_name="my_pool",
+    pool_size=10,
+    pool_reset_session=True,
+    host='localhost',
+    database='GDE',
+    user='root',
+    password='db'
 )
-mycursor = mydb.cursor()
+
+# mydb = mysql.connector.connect(
+#   host="localhost",
+#   user="root",
+#   password="db",
+#   database="GDE"
+# )
+# pool = pooling.MySQLConnectionPool(pool_name="mypool", pool_size=10)
+
+MAX_NUMBER_PROFESSOR = 5683
+# STARTING_PROFESSOR_INDEX = 1
+STARTING_PROFESSOR_INDEX = 184
+professor_id_range = list(range(STARTING_PROFESSOR_INDEX, MAX_NUMBER_PROFESSOR + 1))
 
 
-def save_subjects_infos(subject_info:list[tuple]):
+def save_subjects_infos(subject_info:list[tuple], cursor):
     sql = "INSERT IGNORE INTO Subject (SubjectName, ID) VALUES (%s, %s)"
-    mycursor.executemany(sql, subject_info)
-    mydb.commit()
+    cursor.executemany(sql, subject_info)
 
-def save_professor_info(professor_info:tuple):
+
+def save_professor_info(professor_info:tuple, cursor):
     sql = "INSERT IGNORE INTO Professor (NAME, ID) VALUES (%s, %s)"
-    mycursor.execute(sql, professor_info)
-    mydb.commit()
+    cursor.execute(sql, professor_info)
+
 
 def parse_courses_taught(soup_data:BeautifulSoup):
     selectable_menu = soup_data.find_all('select',class_='avaliacao_oferecimento')
@@ -37,7 +54,7 @@ def parse_professor_name(soup_data:BeautifulSoup):
     name = name_tags[0].text.replace('\n', '').replace('\t', '')
     return name
 
-def update_professor_scores(professor_id:int, subjects:list[tuple]):
+def update_professor_scores(professor_id:int, subjects:list[tuple], cursor):
     cookies = {
         '_ga': 'GA1.1.1807215295.1713555027',
         '_ga_LF4MP0Z2VG': 'GS1.1.1714153287.19.1.1714153434.0.0.0',
@@ -72,7 +89,6 @@ def update_professor_scores(professor_id:int, subjects:list[tuple]):
             'id_disciplina': subject[1],
         }
 
-        print(subject[0])
         response = requests.get('https://grade.daconline.unicamp.br/ajax/avaliacoes.php', params=params, cookies=cookies, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -88,8 +104,7 @@ def update_professor_scores(professor_id:int, subjects:list[tuple]):
 
         # Save data to sql
         sql = "INSERT IGNORE INTO ProfessorRankings (ProfessorID, SubjectID, Coerente, ExplicaBem, Facilidade) VALUES (%s, %s, %s, %s, %s)"
-        mycursor.execute(sql, (professor_id, subject[1], coherent_score, explanation_score, easy_score))
-        mydb.commit()
+        cursor.execute(sql, (professor_id, subject[1], coherent_score, explanation_score, easy_score))
 
 def update_professor_infos(professor_id:int):
     cookies = {
@@ -129,16 +144,52 @@ def update_professor_infos(professor_id:int):
     response = requests.get('https://grade.daconline.unicamp.br/perfil/', params=params, cookies=cookies, headers=headers)
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    # Get all courses the professor teaches
-    subjects_parsed = parse_courses_taught(soup)
-    save_subjects_infos(subjects_parsed)
+    with connection_pool.get_connection() as conn:
+        with conn.cursor() as cursor:
+            # Get all courses the professor teaches
+            subjects_parsed = parse_courses_taught(soup)
+            save_subjects_infos(subjects_parsed, cursor)
 
-    # Get professor Name
-    professor_name = parse_professor_name(soup)
-    save_professor_info((professor_name, professor_id))
+            # Get professor Name
+            professor_name = parse_professor_name(soup)
+            save_professor_info((professor_name, professor_id), cursor)
 
-    # print(subjects_parsed)
-    update_professor_scores(professor_id, subjects_parsed)
+            # print(subjects_parsed)
+            update_professor_scores(professor_id, subjects_parsed, cursor)
+
+            conn.commit()
+
+        # connection_pool.release_connection(conn)
+
+
+def update_workers():
+    while len(professor_id_range) != 0:
+        professor_id = professor_id_range.pop(0)
+        try:
+            print('[UPDATING] Trying to update id:', professor_id)
+            update_professor_infos(professor_id)
+        except Exception as error:
+            print('[ERROR] Failed to complete id:', professor_id)
+            print(error)
 
 if __name__ == '__main__':
-    update_professor_infos(2814)
+    t1 = threading.Thread(target=update_workers)
+    t2 = threading.Thread(target=update_workers)
+    t3 = threading.Thread(target=update_workers)
+    t4 = threading.Thread(target=update_workers)
+    t5 = threading.Thread(target=update_workers)
+    t6 = threading.Thread(target=update_workers)
+
+    t1.start()
+    t2.start()
+    t3.start()
+    t4.start()
+    t5.start()
+    t6.start()
+
+    t1.join()
+    t2.join()
+    t3.join()
+    t4.join()
+    t5.join()
+    t6.join()
