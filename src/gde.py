@@ -72,6 +72,7 @@ def update_professor_scores(professor_id:int, subjects:list[tuple]):
             'id_disciplina': subject[1],
         }
 
+        print(subject[0])
         response = requests.get('https://grade.daconline.unicamp.br/ajax/avaliacoes.php', params=params, cookies=cookies, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -79,8 +80,16 @@ def update_professor_scores(professor_id:int, subjects:list[tuple]):
         explanation_tag_id = 'span_fixo_3_{PROFESSOR_ID}_{COURSE_ID}'.format(PROFESSOR_ID=professor_id, COURSE_ID=subject[1])
         easy_tag_id = 'span_fixo_4_{PROFESSOR_ID}_{COURSE_ID}'.format(PROFESSOR_ID=professor_id, COURSE_ID=subject[1])
 
-        coherent_score = soup.find_all('span', id=coherent_score)
-        print(coherent_score)
+        enough_validation = lambda tags_found: tags_found[0].text if len(tags_found) != 0 else None
+
+        easy_score = enough_validation(soup.find_all('span', id=easy_tag_id))
+        coherent_score = enough_validation(soup.find_all('span', id=coherent_tag_id))
+        explanation_score = enough_validation(soup.find_all('span', id=explanation_tag_id))
+
+        # Save data to sql
+        sql = "INSERT IGNORE INTO ProfessorRankings (ProfessorID, SubjectID, Coerente, ExplicaBem, Facilidade) VALUES (%s, %s, %s, %s, %s)"
+        mycursor.execute(sql, (professor_id, subject[1], coherent_score, explanation_score, easy_score))
+        mydb.commit()
 
 def update_professor_infos(professor_id:int):
     cookies = {

@@ -10,6 +10,7 @@ CREATE TABLE Subject (
     SubjectName VARCHAR(255)
 );
 
+-- ! CHANGE FROM INT TO FLOATS
 CREATE TABLE ProfessorRankings (
     ProfessorID INT,
     SubjectID INT,
